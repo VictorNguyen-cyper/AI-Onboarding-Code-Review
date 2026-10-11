@@ -4,6 +4,7 @@
 #   ./qa check                          validate log.csv, findings.csv, boundary.csv and effort.csv
 #   ./qa scan "<feature>" [code dir]    Tier 1 (scripts/scan.sh)
 #   ./qa review [--lang en|zh-Hant|vi] "<feature>" <requirements> <code dir>   Tier 3 (review.sh)
+#   ./qa paste                          build paste-review.html: a box to paste code and get the Tier 3 prompt
 #   ./qa page                           rebuild index.html, the result tables (scripts/build-page.py)
 set -eu
 ROOT=$(cd "$(dirname "$0")" && pwd)
@@ -16,9 +17,10 @@ case "$CMD" in
     python3 "$ROOT/scripts/check-log.py" "$ROOT/log.csv" || rc=1
     python3 "$ROOT/scripts/check-classification.py" || rc=1
     exit $rc ;;
+  paste) exec python3 "$ROOT/scripts/build-paste-page.py" "$@" ;;
   page) exec python3 "$ROOT/scripts/build-page.py" "$@" ;;
   scan) exec "$ROOT/scripts/scan.sh" "$@" ;;
   review) exec "$ROOT/review.sh" "$@" ;;
-  -h|--help|help) sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' ;;
+  -h|--help|help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) echo "Unknown command: $CMD (try ./qa help)" >&2; exit 2 ;;
 esac
