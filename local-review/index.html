@@ -3,52 +3,126 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Local AI Review</title>
+<title>Local Review</title>
 <style>
-  :root { --bg:#fafafa; --fg:#1a1a1a; --muted:#666; --card:#fff; --line:#ddd; --accent:#2457d6; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#14161a; --fg:#e8e8e8; --muted:#9aa0a6; --card:#1d2026; --line:#333; --accent:#6c97ff; }
+  :root {
+    --paper:#ECEFF5; --card:#FFFFFF; --ink:#12172B; --muted:#5B6178; --line:#D3D8E4; --soft:#F5F7FB;
+    --accent:#3D4FE0; --accent-ink:#FFFFFF;
+    --good:#0F8F6B; --high:#D6336C; --medium:#D98A00; --low:#3B82C4;
+    --mono:ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans:system-ui, -apple-system, "Segoe UI", sans-serif;
   }
-  * { box-sizing: border-box; }
-  body { margin:0; padding:24px 16px; background:var(--bg); color:var(--fg);
-         font:15px/1.5 -apple-system, system-ui, sans-serif; }
-  main { max-width:900px; margin:0 auto; }
-  h1 { font-size:22px; margin:0 0 4px; }
-  p.sub { color:var(--muted); margin:0 0 20px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
-  label { display:block; font-weight:600; margin:0 0 6px; }
-  .row { display:flex; gap:12px; flex-wrap:wrap; }
-  .row > div { flex:1 1 200px; }
-  select, textarea, input[type=text] { width:100%; padding:8px; border:1px solid var(--line); border-radius:6px;
-         background:var(--bg); color:var(--fg); font:inherit; }
-  textarea { font-family:ui-monospace, Menlo, monospace; font-size:13px; min-height:120px; resize:vertical; }
-  button { padding:9px 18px; border:0; border-radius:6px; background:var(--accent); color:#fff; font:inherit;
-           font-weight:600; cursor:pointer; }
-  button:disabled { opacity:.5; cursor:default; }
-  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
-  #status { color:var(--muted); margin-left:12px; }
-    #result h2 { font-size:16px; margin:20px 0 8px; }
-  #result h2:first-child { margin-top:0; }
-  .item { border:1px solid var(--line); border-left-width:4px; border-radius:6px; padding:10px 12px; margin-bottom:8px; }
-  .item.good { border-left-color:#2e9e5b; }
-  .item.High { border-left-color:#d93636; } .item.Medium { border-left-color:#e0a000; } .item.Low { border-left-color:#6c8ebf; }
-  .item .t { font-weight:600; }
-  .item .loc { font-family:ui-monospace, Menlo, monospace; font-size:12px; color:var(--muted); }
-  .tag { display:inline-block; font-size:11px; font-weight:700; padding:1px 7px; border-radius:10px;
-         border:1px solid var(--line); margin-right:6px; }
-  table.crit { border-collapse:collapse; width:100%; font-size:13px; }
-  table.crit td { border:1px solid var(--line); padding:4px 8px; }
-  .Yes { color:#2e9e5b; } .No { color:#d93636; }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:#0E1120; --card:#161A2E; --ink:#E9ECF8; --muted:#9AA1BD; --line:#2A3050; --soft:#1C2140;
+      --accent:#7C8BFF; --accent-ink:#0E1120;
+      --good:#3CCB9E; --high:#FF6B9A; --medium:#F2B13A; --low:#6DB0F0;
+    }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font:15px/1.55 var(--sans); }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+  header { max-width:1180px; margin:0 auto; padding:20px 16px; display:flex; align-items:center;
+           justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .brand { font:700 15px var(--mono); letter-spacing:.04em; text-transform:uppercase; }
+  .brand span { color:var(--accent); }
+  .engine { display:flex; align-items:center; gap:8px; font:12px var(--mono); color:var(--muted); }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); }
+  .dot.on { background:var(--good); } .dot.off { background:var(--high); }
+
+  .layout { max-width:1180px; margin:0 auto; padding:0 16px 48px; display:grid; gap:20px;
+            grid-template-columns:minmax(300px,380px) 1fr; align-items:start; }
+  @media (max-width:860px) { .layout { grid-template-columns:1fr; } }
+
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; }
+  .panel.sticky { position:sticky; top:16px; }
+  @media (max-width:860px) { .panel.sticky { position:static; } }
+  h2.cap { font:700 11px var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin:0 0 14px; }
+  .field { margin-bottom:16px; }
+  label, .lab { display:block; font:600 13px var(--sans); margin-bottom:6px; }
+  select, textarea, input[type=text] { width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:6px;
+           background:var(--soft); color:var(--ink); font:inherit; }
+  textarea { font:13px/1.5 var(--mono); min-height:110px; resize:vertical; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .hint { color:var(--muted); font-size:13px; margin-top:6px; }
+
+  .drop { position:relative; display:block; border:1.5px dashed var(--line); border-radius:8px; padding:20px 14px;
+          text-align:center; background:var(--soft); transition:border-color .15s, background .15s; }
+  .drop:hover, .drop:focus-within { border-color:var(--accent); }
+  .drop input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+  .drop strong { display:block; font:600 14px var(--sans); }
+  .drop small { color:var(--muted); }
+  .drop.has { border-style:solid; border-color:var(--good); }
+  details summary { cursor:pointer; font:600 13px var(--sans); color:var(--accent); padding:2px 0; }
+  details[open] summary { margin-bottom:8px; }
+
+  .actions { display:flex; gap:8px; }
+  button { font:600 14px var(--sans); padding:10px 16px; border-radius:6px; border:1px solid transparent; cursor:pointer; }
+  button.primary { background:var(--accent); color:var(--accent-ink); flex:1; }
+  button.ghost { background:transparent; color:var(--ink); border-color:var(--line); }
+  button:disabled { opacity:.45; cursor:default; }
+
+  .out-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+  .out-head h2.cap { margin:0; }
+  #status { font:12px var(--mono); color:var(--muted); }
+  #status.err { color:var(--high); }
+
+  .empty { text-align:center; padding:48px 16px; color:var(--muted); }
+  .empty strong { display:block; color:var(--ink); font-size:16px; margin-bottom:4px; }
+  .busy-bar { height:3px; background:var(--line); border-radius:2px; overflow:hidden; margin-bottom:14px; }
+  .busy-bar i { display:block; height:100%; width:35%; background:var(--accent); animation:slide 1.2s ease-in-out infinite; }
+  @keyframes slide { from { margin-left:-35%; } to { margin-left:100%; } }
+  @media (prefers-reduced-motion: reduce) { .busy-bar i { animation:none; width:100%; opacity:.5; } }
+
+  .summary { font-size:16px; line-height:1.6; margin:0 0 18px; }
+  .ledger { display:flex; height:10px; border-radius:5px; overflow:hidden; background:var(--line); gap:2px; margin-bottom:8px; }
+  .ledger i { display:block; min-width:6px; }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 16px; font:12px var(--mono); color:var(--muted); margin-bottom:22px; }
+  .legend b { color:var(--ink); }
+  .legend .sw { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; }
+
+  h3.sec { font:700 11px var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--muted);
+           margin:26px 0 10px; display:flex; align-items:center; gap:10px; }
+  h3.sec::after { content:""; flex:1; height:1px; background:var(--line); }
+
+  .row { display:grid; grid-template-columns:64px 1fr; border:1px solid var(--line); border-radius:8px; overflow:hidden;
+         margin-bottom:8px; background:var(--card); }
+  .gutter { background:var(--soft); border-right:1px solid var(--line); border-left:4px solid var(--c);
+            padding:10px 6px; text-align:center; font:700 12px var(--mono); }
+  .gutter small { display:block; font:600 10px var(--mono); letter-spacing:.06em; text-transform:uppercase; color:var(--c); margin-top:2px; }
+  .row.High { --c:var(--high); } .row.Medium { --c:var(--medium); } .row.Low { --c:var(--low); } .row.good { --c:var(--good); }
+  .body { padding:10px 14px; min-width:0; }
+  .body .t { font-weight:650; }
+  .body .d { color:var(--muted); margin-top:2px; }
+  .loc { display:inline-block; margin-top:6px; font:12px var(--mono); background:var(--soft); border:1px solid var(--line);
+         border-radius:4px; padding:1px 7px; overflow-wrap:anywhere; }
+
+  .board { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; }
+  @media (max-width:560px) { .board { grid-template-columns:repeat(3,1fr); } }
+  .cell { border:1.5px solid var(--ink); border-radius:6px; padding:6px 8px; font:12px var(--mono); position:relative; }
+  .cell b { display:block; font-size:13px; }
+  .cell.Yes { background:var(--ink); color:var(--paper); }
+  .cell.No { background:transparent; }
+  .cell.Insufficient { border-style:dashed; border-color:var(--muted); color:var(--muted);
+        background:repeating-linear-gradient(135deg, transparent 0 5px, var(--soft) 5px 10px); }
+  .cell em { position:absolute; top:4px; right:6px; font-style:normal; font-weight:700; color:var(--high); }
+  .cell.Yes em { color:var(--high); background:var(--paper); border-radius:8px; padding:0 5px; }
+  .board-note { font-size:12px; color:var(--muted); margin-top:8px; }
+  ul.q { margin:0; padding-left:20px; }
 </style>
 </head>
 <body>
-<main>
-  <h1>Local AI Review</h1>
-  <p class="sub">Runs entirely on this computer through Ollama. No code is sent to the internet.</p>
+<header>
+  <div class="brand">Local<span>/</span>Review</div>
+  <div class="engine"><span class="dot" id="dot"></span><span id="engine">Checking Ollama…</span></div>
+</header>
 
-  <div class="card">
-    <div class="row">
+<div class="layout">
+  <section class="panel sticky" aria-label="Submission">
+    <h2 class="cap">Submission</h2>
+
+    <div class="two field">
       <div><label for="model">Model</label><select id="model"></select></div>
       <div><label for="lang">Answer language</label>
         <select id="lang">
@@ -57,33 +131,46 @@
           <option value="zh-Hant">繁體中文</option>
         </select></div>
     </div>
-    <div class="hint" id="modelHint"></div>
-  </div>
 
-  <div class="card">
-    <label for="req">Requirements (what the code is supposed to do)</label>
-    <textarea id="req" placeholder="Paste the requirements here"></textarea>
-  </div>
+    <div class="field">
+      <label for="req">Requirements</label>
+      <textarea id="req" placeholder="What should this code do? Paste the requirements here."></textarea>
+    </div>
 
-  <div class="card">
-    <label>Code to review</label>
-    <input type="file" id="folder" webkitdirectory multiple>
-    <div class="hint" id="folderInfo">Pick a folder, or paste a single file below.</div>
-    <div style="height:10px"></div>
-    <input type="text" id="pasteName" value="pasted-code.txt" aria-label="File name for pasted code">
-    <div style="height:6px"></div>
-    <textarea id="paste" placeholder="Or paste code here"></textarea>
-  </div>
+    <div class="field">
+      <span class="lab">Code</span>
+      <label class="drop" id="drop">
+        <input type="file" id="folder" webkitdirectory multiple aria-label="Choose a folder of code">
+        <strong>Choose a folder</strong>
+        <small id="folderInfo">Binary, large and generated files are skipped.</small>
+      </label>
+    </div>
 
-  <div style="margin-bottom:16px">
-    <button id="go">Review</button>
-    <button id="stop" class="ghost" disabled>Stop</button>
-    <button id="copy" class="ghost" disabled>Copy JSON</button>
-    <span id="status"></span>
-  </div>
+    <details class="field">
+      <summary>Or paste a single file</summary>
+      <input type="text" id="pasteName" value="pasted-code.txt" aria-label="File name for pasted code">
+      <div style="height:6px"></div>
+      <textarea id="paste" aria-label="Pasted code" placeholder="Paste code here"></textarea>
+    </details>
 
-  <div class="card"><div id="result" aria-live="polite">The result appears here.</div></div>
-</main>
+    <div class="actions">
+      <button id="go" class="primary">Review code</button>
+      <button id="stop" class="ghost" disabled>Stop</button>
+    </div>
+    <p class="hint" id="modelHint"></p>
+  </section>
+
+  <section class="panel" aria-label="Review">
+    <div class="out-head">
+      <h2 class="cap">Review</h2>
+      <span id="status" role="status"></span>
+      <button id="copy" class="ghost" disabled>Copy JSON</button>
+    </div>
+    <div id="result" aria-live="polite">
+      <div class="empty"><strong>No review yet</strong>Choose a folder or paste a file, then select Review code.</div>
+    </div>
+  </section>
+</div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -92,16 +179,28 @@ const SECRET = /(^|\/)(\.env(\..*)?|.*\.(pem|key|p12|pfx)|id_rsa.*|id_ed25519.*)
 const MAX_FILE = 200 * 1024;
 let files = [];
 let abort = null;
+let lastResult = null;
+
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;   // model output is untrusted: never innerHTML
+  return e;
+};
+const setStatus = (msg, err) => { $('status').textContent = msg; $('status').classList.toggle('err', !!err); };
 
 async function loadModels() {
   try {
     const r = await fetch('/api/models');
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
-    $('model').innerHTML = j.models.map(m => `<option>${m}</option>`).join('');
-    $('modelHint').textContent = j.models.length ? '' :
-      'No model installed yet. Run: ollama pull qwen2.5-coder:7b';
+    $('model').replaceChildren(...j.models.map(m => el('option', '', m)));
+    $('dot').className = 'dot on';
+    $('engine').textContent = `Ollama running · ${j.models.length} model${j.models.length === 1 ? '' : 's'}`;
+    $('modelHint').textContent = j.models.length ? '' : 'No model installed yet. Run: ollama pull qwen2.5-coder:7b';
   } catch (e) {
+    $('dot').className = 'dot off';
+    $('engine').textContent = 'Ollama not running';
     $('modelHint').textContent = e.message;
   }
 }
@@ -118,74 +217,96 @@ $('folder').addEventListener('change', async e => {
     if (text.includes('\u0000')) { skipped++; continue; }
     files.push({ path: p, content: text });
   }
-  $('folderInfo').textContent = `${files.length} files loaded, ${skipped} skipped (binary, large or generated).`;
+  $('folderInfo').textContent = `${files.length} files ready · ${skipped} skipped`;
+  $('drop').classList.toggle('has', files.length > 0);
 });
 
-const el = (tag, cls, text) => {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;   // model output is untrusted: never innerHTML
-  return e;
-};
-let lastResult = null;
-
-function item(cls, x, tag) {
-  const d = el('div', 'item ' + cls);
-  const t = el('div', 't');
-  if (tag) t.append(el('span', 'tag', tag));
-  t.append(x.title);
-  d.append(t, el('div', '', x.detail));
-  if (x.location) d.append(el('div', 'loc', x.location));
-  return d;
+function row(cls, gutterTop, gutterSub, x) {
+  const r = el('div', 'row ' + cls);
+  const g = el('div', 'gutter', gutterTop);
+  if (gutterSub) g.append(el('small', '', gutterSub));
+  const b = el('div', 'body');
+  b.append(el('div', 't', x.title), el('div', 'd', x.detail));
+  if (x.location) b.append(el('span', 'loc', x.location));
+  r.append(g, b);
+  return r;
 }
 
 function render(r) {
   const box = $('result');
   box.replaceChildren();
-  box.append(el('h2', '', 'Summary'), el('div', '', r.summary));
-  box.append(el('h2', '', `Strengths (${r.strengths.length})`));
-  r.strengths.forEach(x => box.append(item('good', x)));
-  if (!r.strengths.length) box.append(el('div', 'hint', 'None reported.'));
-  box.append(el('h2', '', `Weaknesses (${r.weaknesses.length})`));
+  box.append(el('p', 'summary', r.summary));
+
   const order = { High: 0, Medium: 1, Low: 2 };
-  r.weaknesses.slice().sort((a, b) => order[a.severity] - order[b.severity])
-    .forEach(x => box.append(item(x.severity, x, `${x.severity} · ${x.criterion}`)));
-  if (!r.weaknesses.length) box.append(el('div', 'hint', 'None reported.'));
+  const weak = r.weaknesses.slice().sort((a, b) => order[a.severity] - order[b.severity]);
+  const count = s => weak.filter(w => w.severity === s).length;
+  const parts = [['High', count('High'), 'var(--high)'], ['Medium', count('Medium'), 'var(--medium)'],
+                 ['Low', count('Low'), 'var(--low)'], ['Strengths', r.strengths.length, 'var(--good)']];
+
+  const ledger = el('div', 'ledger');
+  parts.filter(p => p[1]).forEach(([, n, c]) => { const i = el('i'); i.style.flex = n; i.style.background = c; ledger.append(i); });
+  const legend = el('div', 'legend');
+  parts.forEach(([name, n, c]) => {
+    const s = el('span'); const sw = el('span', 'sw'); sw.style.background = c;
+    s.append(sw, el('b', '', n), ' ' + name); legend.append(s);
+  });
+  box.append(ledger, legend);
+
+  box.append(el('h3', 'sec', `Weaknesses · ${weak.length}`));
+  weak.forEach(x => box.append(row(x.severity, x.criterion === 'other' ? '—' : x.criterion, x.severity, x)));
+  if (!weak.length) box.append(el('div', 'hint', 'No weaknesses reported.'));
+
+  box.append(el('h3', 'sec', `Strengths · ${r.strengths.length}`));
+  r.strengths.forEach(x => box.append(row('good', '✓', '', x)));
+  if (!r.strengths.length) box.append(el('div', 'hint', 'No strengths reported.'));
+
   if (r.criteria.length) {
-    box.append(el('h2', '', 'Checklist'));
-    const tb = el('table', 'crit');
-    r.criteria.forEach(c => {
-      const tr = el('tr'), ans = el('td', c.answer.split(' ')[0], c.answer);
-      tr.append(el('td', '', c.code), ans);
-      tb.append(tr);
+    box.append(el('h3', 'sec', 'Checklist'));
+    const board = el('div', 'board');
+    r.criteria.slice().sort((a, b) => a.code.localeCompare(b.code)).forEach(c => {
+      const key = c.answer.split(' ')[0];
+      const cell = el('div', 'cell ' + key);
+      cell.append(el('b', '', c.code), key === 'Insufficient' ? 'Not enough info' : c.answer);
+      const n = weak.filter(w => w.criterion === c.code).length;
+      if (n) cell.append(el('em', '', n));
+      board.append(cell);
     });
-    box.append(tb);
+    box.append(board, el('div', 'board-note',
+      'Filled = Yes, outlined = No, hatched = not enough information. A red number counts the weaknesses tied to that criterion. Whether Yes or No passes depends on the criterion; see checklist.md.'));
   }
+
   if (r.open_questions.length) {
-    box.append(el('h2', '', 'Open questions'));
-    r.open_questions.forEach(q => box.append(el('div', '', '• ' + q)));
+    box.append(el('h3', 'sec', 'Open questions'));
+    const ul = el('ul', 'q');
+    r.open_questions.forEach(q => ul.append(el('li', '', q)));
+    box.append(ul);
   }
+}
+
+function busy() {
+  const box = $('result');
+  box.replaceChildren();
+  const bar = el('div', 'busy-bar'); bar.append(el('i'));
+  box.append(bar, el('div', 'hint', 'A local model can take a few minutes. You can stop at any time.'));
 }
 
 $('go').onclick = async () => {
   const list = files.slice();
   if ($('paste').value.trim()) list.push({ path: $('pasteName').value || 'pasted-code.txt', content: $('paste').value });
-  if (!list.length) { $('status').textContent = 'Add some code first.'; return; }
-  $('result').textContent = '';
+  if (!list.length) { setStatus('Add some code first.', true); return; }
   lastResult = null; $('copy').disabled = true;
-  $('status').textContent = 'Thinking… (a local model can take a few minutes)';
+  busy(); setStatus('Reading code…');
   $('go').disabled = true; $('stop').disabled = false;
   abort = new AbortController();
   const t0 = Date.now();
+  let failed = false;
   const handle = ev => {
-    if (ev.type === 'progress') $('status').textContent = `Writing review… ${ev.chars} characters`;
-    else if (ev.type === 'retry') $('status').textContent = 'Invalid answer from the model, retrying once…';
+    if (ev.type === 'progress') setStatus(`Writing review · ${ev.chars} characters`);
+    else if (ev.type === 'retry') setStatus('Invalid answer from the model, retrying once…');
     else if (ev.type === 'result') {
       lastResult = ev.data; render(ev.data); $('copy').disabled = false;
-      $('status').textContent = `Done in ${Math.round((Date.now() - t0) / 1000)} s`;
-    } else if (ev.type === 'error') {
-      $('status').textContent = 'Error: ' + ev.message;
-    }
+      setStatus(`Done in ${Math.round((Date.now() - t0) / 1000)} s`);
+    } else if (ev.type === 'error') { failed = true; setStatus(ev.message, true); }
   };
   try {
     const r = await fetch('/api/review', {
@@ -206,8 +327,12 @@ $('go').onclick = async () => {
       lines.filter(Boolean).forEach(l => handle(JSON.parse(l)));
     }
   } catch (e) {
-    $('status').textContent = e.name === 'AbortError' ? 'Stopped.' : 'Error: ' + e.message;
+    failed = true;
+    setStatus(e.name === 'AbortError' ? 'Stopped.' : e.message, e.name !== 'AbortError');
   } finally {
+    if (failed && !lastResult) $('result').replaceChildren(el('div', 'empty', ''));
+    if (failed && !lastResult) $('result').firstChild.append(el('strong', '', 'No review produced'),
+      'Check the message above, then select Review code to try again.');
     $('go').disabled = false; $('stop').disabled = true;
   }
 };
