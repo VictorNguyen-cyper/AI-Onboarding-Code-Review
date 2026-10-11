@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local AI Review</title>
+<style>
+  :root { --bg:#fafafa; --fg:#1a1a1a; --muted:#666; --card:#fff; --line:#ddd; --accent:#2457d6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161a; --fg:#e8e8e8; --muted:#9aa0a6; --card:#1d2026; --line:#333; --accent:#6c97ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px 16px; background:var(--bg); color:var(--fg);
+         font:15px/1.5 -apple-system, system-ui, sans-serif; }
+  main { max-width:900px; margin:0 auto; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-weight:600; margin:0 0 6px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; }
+  .row > div { flex:1 1 200px; }
+  select, textarea, input[type=text] { width:100%; padding:8px; border:1px solid var(--line); border-radius:6px;
+         background:var(--bg); color:var(--fg); font:inherit; }
+  textarea { font-family:ui-monospace, Menlo, monospace; font-size:13px; min-height:120px; resize:vertical; }
+  button { padding:9px 18px; border:0; border-radius:6px; background:var(--accent); color:#fff; font:inherit;
+           font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  #status { color:var(--muted); margin-left:12px; }
+  #out { white-space:pre-wrap; word-wrap:break-word; font-family:ui-monospace, Menlo, monospace; font-size:13px;
+         min-height:60px; }
+  .hint { color:var(--muted); font-size:13px; margin-top:6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Local AI Review</h1>
+  <p class="sub">Runs entirely on this computer through Ollama. No code is sent to the internet.</p>
+
+  <div class="card">
+    <div class="row">
+      <div><label for="model">Model</label><select id="model"></select></div>
+      <div><label for="lang">Answer language</label>
+        <select id="lang">
+          <option value="en">English</option>
+          <option value="vi">Tiếng Việt</option>
+          <option value="zh-Hant">繁體中文</option>
+        </select></div>
+    </div>
+    <div class="hint" id="modelHint"></div>
+  </div>
+
+  <div class="card">
+    <label for="req">Requirements (what the code is supposed to do)</label>
+    <textarea id="req" placeholder="Paste the requirements here"></textarea>
+  </div>
+
+  <div class="card">
+    <label>Code to review</label>
+    <input type="file" id="folder" webkitdirectory multiple>
+    <div class="hint" id="folderInfo">Pick a folder, or paste a single file below.</div>
+    <div style="height:10px"></div>
+    <input type="text" id="pasteName" value="pasted-code.txt" aria-label="File name for pasted code">
+    <div style="height:6px"></div>
+    <textarea id="paste" placeholder="Or paste code here"></textarea>
+  </div>
+
+  <div style="margin-bottom:16px">
+    <button id="go">Review</button>
+    <button id="stop" class="ghost" disabled>Stop</button>
+    <button id="copy" class="ghost">Copy result</button>
+    <span id="status"></span>
+  </div>
+
+  <div class="card"><div id="out">The result appears here.</div></div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const SKIP_DIR = /(^|\/)(\.git|node_modules|dist|build|\.next|venv|\.venv|__pycache__)\//;
+const SECRET = /(^|\/)(\.env(\..*)?|.*\.(pem|key|p12|pfx)|id_rsa.*|id_ed25519.*)$/;
+const MAX_FILE = 200 * 1024;
+let files = [];
+let abort = null;
+
+async function loadModels() {
+  try {
+    const r = await fetch('/api/models');
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    $('model').innerHTML = j.models.map(m => `<option>${m}</option>`).join('');
+    $('modelHint').textContent = j.models.length ? '' :
+      'No model installed yet. Run: ollama pull qwen2.5-coder:7b';
+  } catch (e) {
+    $('modelHint').textContent = e.message;
+  }
+}
+
+$('folder').addEventListener('change', async e => {
+  files = [];
+  let skipped = 0;
+  for (const f of e.target.files) {
+    const p = f.webkitRelativePath.split('/').slice(1).join('/');
+    if (SKIP_DIR.test('/' + p)) { skipped++; continue; }
+    if (SECRET.test(p)) { files.push({ path: p, content: '(secret file — contents not sent)' }); continue; }
+    if (f.size > MAX_FILE) { skipped++; continue; }
+    const text = await f.text();
+    if (text.includes('\u0000')) { skipped++; continue; }
+    files.push({ path: p, content: text });
+  }
+  $('folderInfo').textContent = `${files.length} files loaded, ${skipped} skipped (binary, large or generated).`;
+});
+
+$('go').onclick = async () => {
+  const list = files.slice();
+  if ($('paste').value.trim()) list.push({ path: $('pasteName').value || 'pasted-code.txt', content: $('paste').value });
+  if (!list.length) { $('status').textContent = 'Add some code first.'; return; }
+  $('out').textContent = '';
+  $('status').textContent = 'Thinking… (a local model can take a few minutes)';
+  $('go').disabled = true; $('stop').disabled = false;
+  abort = new AbortController();
+  const t0 = Date.now();
+  try {
+    const r = await fetch('/api/review', {
+      method: 'POST', signal: abort.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: $('model').value, lang: $('lang').value,
+                             requirements: $('req').value, files: list })
+    });
+    if (!r.ok) throw new Error((await r.json()).error);
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      $('out').textContent += dec.decode(value, { stream: true });
+    }
+    $('status').textContent = `Done in ${Math.round((Date.now() - t0) / 1000)} s`;
+  } catch (e) {
+    $('status').textContent = e.name === 'AbortError' ? 'Stopped.' : 'Error: ' + e.message;
+  } finally {
+    $('go').disabled = false; $('stop').disabled = true;
+  }
+};
+$('stop').onclick = () => abort && abort.abort();
+$('copy').onclick = () => navigator.clipboard.writeText($('out').textContent);
+loadModels();
+</script>
+</body>
+</html>
