@@ -22,7 +22,8 @@ No Python packages are needed. The server listens on 127.0.0.1 only.
 
 ## Notes
 
-- The review uses the 12 criteria in `../checklist.md`.
+- The review uses the 12 criteria in `../checklist.md` and reports strengths, weaknesses (with severity and criterion) and open questions.
+- `POST /api/review` streams NDJSON events: `progress`, `retry`, then one `result` (the review as JSON, shape in `SCHEMA` in `server.py`) or `error`. Ollama's structured output keeps the model on that schema; if the answer is still invalid the server retries once.
 - Secret files (`.env`, `*.pem`, `*.key`…) are sent by name only, as in `review.sh`.
 - Context is capped at 16k tokens (`NUM_CTX` in `server.py`). A large folder will be truncated by the model; review a few files at a time.
 - A 7B model is clearly weaker than Gemini Pro. Treat its findings as hints, not verdicts.

@@ -15,6 +15,7 @@ HERE = Path(__file__).resolve().parent
 CHECKLIST = HERE.parent / "checklist.md"
 MAX_BODY = 8 * 1024 * 1024
 NUM_CTX = 16384
+MAX_ATTEMPTS = 2
 
 LANGS = {
     "en": "English",
@@ -22,37 +23,81 @@ LANGS = {
     "vi": "Vietnamese (Tiếng Việt)",
 }
 
-PROMPT = """You are a code reviewer. Review the source code below against exactly the 12 criteria C01–C12 in the CHECKLIST, comparing it with the REQUIREMENTS.
+PROMPT = """You are a code reviewer. Read the source code below and judge it against the REQUIREMENTS and the CHECKLIST (criteria C01–C12).
+
+Report:
+- strengths: what the code does well.
+- weaknesses: problems found. Set "criterion" to the checklist code it relates to (C01–C12), or "other" if none fits.
+- criteria: one entry for each of C01–C12 with answer Yes, No or Insufficient information.
 
 Rules:
-- Review only against the 12 criteria. No general comments on naming or formatting.
 - Never quote secret values, passwords or connection strings. Record the location only.
-- Do not invent locations. Every location must be a file and line that exists in the input.
-- If the input is not enough to assess a criterion, answer "Insufficient information" and say what is missing. Do not guess.
+- Do not invent locations. "location" must be a file (and line or function) that exists in the input.
+- If the input is not enough to assess something, say so. Do not guess.
 - Do not rewrite or fix the source code.
+- Be concise: at most 8 strengths and 10 weaknesses, each detail 1-2 sentences.
 
-Output language: write all headings and prose in {lang}.
+Output language: write summary, title, detail and open_questions in {lang}.
 Keep in English: criterion codes, Yes / No / Insufficient information, High / Medium / Low, file paths, code identifiers.
 
-Output format (Markdown):
+Answer with JSON only, matching the given schema."""
 
-## Overview by criterion
-| Code | Answer | Findings |
-| --- | --- | --- |
-(12 rows C01–C12)
+CODES = [f"C{i:02d}" for i in range(1, 13)]
+ANSWERS = ["Yes", "No", "Insufficient information"]
+SEVERITIES = ["High", "Medium", "Low"]
 
-## Findings
-- Criterion: <code>
-  Location: <file:line or function>
-  Severity: High / Medium / Low
-  Description: <1-2 sentences>
-(or "No findings")
 
-## Open questions
-(or "None")
+def _item(extra):
+    props = {"title": {"type": "string"}, "detail": {"type": "string"}, "location": {"type": "string"}}
+    props.update(extra)
+    return {"type": "object", "properties": props, "required": list(props)}
 
-## Plain-language summary
-Short sentences for a non-programmer: what the code does, and the main concerns."""
+
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "strengths": {"type": "array", "items": _item({})},
+        "weaknesses": {"type": "array", "items": _item({
+            "severity": {"type": "string", "enum": SEVERITIES},
+            "criterion": {"type": "string", "enum": CODES + ["other"]},
+        })},
+        "criteria": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"code": {"type": "string", "enum": CODES},
+                           "answer": {"type": "string", "enum": ANSWERS}},
+            "required": ["code", "answer"]}},
+        "open_questions": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["summary", "strengths", "weaknesses", "criteria", "open_questions"],
+}
+
+
+def validate(data):
+    """Return the result if it matches SCHEMA's shape, else raise ValueError."""
+    def strs(d, keys):
+        return {k: str(d[k]) for k in keys}
+    try:
+        out = {
+            "summary": str(data["summary"]),
+            "strengths": [strs(x, ["title", "detail", "location"]) for x in data["strengths"]],
+            "weaknesses": [],
+            "criteria": [],
+            "open_questions": [str(q) for q in data["open_questions"]],
+        }
+        for x in data["weaknesses"]:
+            w = strs(x, ["title", "detail", "location", "severity", "criterion"])
+            if w["severity"] not in SEVERITIES or w["criterion"] not in CODES + ["other"]:
+                raise ValueError("bad enum")
+            out["weaknesses"].append(w)
+        for x in data["criteria"]:
+            c = strs(x, ["code", "answer"])
+            if c["code"] not in CODES or c["answer"] not in ANSWERS:
+                raise ValueError("bad enum")
+            out["criteria"].append(c)
+    except (KeyError, TypeError) as e:
+        raise ValueError(f"bad shape: {e}")
+    return out
 
 
 def build_messages(lang, requirements, files):
@@ -110,33 +155,58 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError):
             return self._send(400, json.dumps({"error": "Bad request: need model, files and a valid lang"}))
 
-        body = json.dumps({
-            "model": model, "stream": True,
-            "messages": build_messages(lang, str(req.get("requirements", "")), files),
-            "options": {"num_ctx": NUM_CTX, "temperature": 0.1},
-        }).encode()
+        messages = build_messages(lang, str(req.get("requirements", "")), files)
         try:
-            up = urllib.request.urlopen(urllib.request.Request(
-                self.ollama + "/api/chat", body, {"Content-Type": "application/json"}), timeout=600)
+            up = self._chat(model, messages)
         except (urllib.error.URLError, OSError) as e:
             return self._send(502, json.dumps({"error": f"Cannot reach Ollama: {e}"}))
 
+        # Response is NDJSON events: progress, retry, then one result or error.
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
+        try:
+            for attempt in range(MAX_ATTEMPTS):
+                if attempt:
+                    self._event({"type": "retry"})
+                    up = self._chat(model, messages)
+                try:
+                    self._event({"type": "result", "data": validate(json.loads(self._collect(up)))})
+                    return
+                except ValueError as e:  # includes json.JSONDecodeError
+                    last = str(e)
+            self._event({"type": "error", "message": f"The model did not return a valid review ({last}). Try again or use a larger model."})
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # browser closed the tab; stop generating
+        except (urllib.error.URLError, OSError) as e:
+            self._event({"type": "error", "message": f"Ollama error: {e}"})
+
+    def _chat(self, model, messages):
+        body = json.dumps({
+            "model": model, "stream": True, "format": SCHEMA, "messages": messages,
+            "options": {"num_ctx": NUM_CTX, "temperature": 0.1},
+        }).encode()
+        return urllib.request.urlopen(urllib.request.Request(
+            self.ollama + "/api/chat", body, {"Content-Type": "application/json"}), timeout=600)
+
+    def _event(self, obj):
+        self.wfile.write(json.dumps(obj, ensure_ascii=False).encode("utf-8") + b"\n")
+        self.wfile.flush()
+
+    def _collect(self, up):
+        """Read Ollama's stream to the end, sending progress events; return the full text."""
+        text = ""
         try:
             for line in up:
                 chunk = json.loads(line)
                 if "error" in chunk:
-                    self.wfile.write(f"\n\n[Ollama error: {chunk['error']}]".encode())
-                    break
-                self.wfile.write(chunk.get("message", {}).get("content", "").encode("utf-8"))
-                self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
-            pass  # browser closed the tab; stop generating
+                    raise ValueError(f"Ollama: {chunk['error']}")
+                text += chunk.get("message", {}).get("content", "")
+                self._event({"type": "progress", "chars": len(text)})
         finally:
             up.close()
+        return text
 
 
 def main():

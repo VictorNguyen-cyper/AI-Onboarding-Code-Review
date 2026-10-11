@@ -27,8 +27,18 @@
   button:disabled { opacity:.5; cursor:default; }
   button.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
   #status { color:var(--muted); margin-left:12px; }
-  #out { white-space:pre-wrap; word-wrap:break-word; font-family:ui-monospace, Menlo, monospace; font-size:13px;
-         min-height:60px; }
+    #result h2 { font-size:16px; margin:20px 0 8px; }
+  #result h2:first-child { margin-top:0; }
+  .item { border:1px solid var(--line); border-left-width:4px; border-radius:6px; padding:10px 12px; margin-bottom:8px; }
+  .item.good { border-left-color:#2e9e5b; }
+  .item.High { border-left-color:#d93636; } .item.Medium { border-left-color:#e0a000; } .item.Low { border-left-color:#6c8ebf; }
+  .item .t { font-weight:600; }
+  .item .loc { font-family:ui-monospace, Menlo, monospace; font-size:12px; color:var(--muted); }
+  .tag { display:inline-block; font-size:11px; font-weight:700; padding:1px 7px; border-radius:10px;
+         border:1px solid var(--line); margin-right:6px; }
+  table.crit { border-collapse:collapse; width:100%; font-size:13px; }
+  table.crit td { border:1px solid var(--line); padding:4px 8px; }
+  .Yes { color:#2e9e5b; } .No { color:#d93636; }
   .hint { color:var(--muted); font-size:13px; margin-top:6px; }
 </style>
 </head>
@@ -68,11 +78,11 @@
   <div style="margin-bottom:16px">
     <button id="go">Review</button>
     <button id="stop" class="ghost" disabled>Stop</button>
-    <button id="copy" class="ghost">Copy result</button>
+    <button id="copy" class="ghost" disabled>Copy JSON</button>
     <span id="status"></span>
   </div>
 
-  <div class="card"><div id="out">The result appears here.</div></div>
+  <div class="card"><div id="result" aria-live="polite">The result appears here.</div></div>
 </main>
 
 <script>
@@ -111,15 +121,72 @@ $('folder').addEventListener('change', async e => {
   $('folderInfo').textContent = `${files.length} files loaded, ${skipped} skipped (binary, large or generated).`;
 });
 
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;   // model output is untrusted: never innerHTML
+  return e;
+};
+let lastResult = null;
+
+function item(cls, x, tag) {
+  const d = el('div', 'item ' + cls);
+  const t = el('div', 't');
+  if (tag) t.append(el('span', 'tag', tag));
+  t.append(x.title);
+  d.append(t, el('div', '', x.detail));
+  if (x.location) d.append(el('div', 'loc', x.location));
+  return d;
+}
+
+function render(r) {
+  const box = $('result');
+  box.replaceChildren();
+  box.append(el('h2', '', 'Summary'), el('div', '', r.summary));
+  box.append(el('h2', '', `Strengths (${r.strengths.length})`));
+  r.strengths.forEach(x => box.append(item('good', x)));
+  if (!r.strengths.length) box.append(el('div', 'hint', 'None reported.'));
+  box.append(el('h2', '', `Weaknesses (${r.weaknesses.length})`));
+  const order = { High: 0, Medium: 1, Low: 2 };
+  r.weaknesses.slice().sort((a, b) => order[a.severity] - order[b.severity])
+    .forEach(x => box.append(item(x.severity, x, `${x.severity} · ${x.criterion}`)));
+  if (!r.weaknesses.length) box.append(el('div', 'hint', 'None reported.'));
+  if (r.criteria.length) {
+    box.append(el('h2', '', 'Checklist'));
+    const tb = el('table', 'crit');
+    r.criteria.forEach(c => {
+      const tr = el('tr'), ans = el('td', c.answer.split(' ')[0], c.answer);
+      tr.append(el('td', '', c.code), ans);
+      tb.append(tr);
+    });
+    box.append(tb);
+  }
+  if (r.open_questions.length) {
+    box.append(el('h2', '', 'Open questions'));
+    r.open_questions.forEach(q => box.append(el('div', '', '• ' + q)));
+  }
+}
+
 $('go').onclick = async () => {
   const list = files.slice();
   if ($('paste').value.trim()) list.push({ path: $('pasteName').value || 'pasted-code.txt', content: $('paste').value });
   if (!list.length) { $('status').textContent = 'Add some code first.'; return; }
-  $('out').textContent = '';
+  $('result').textContent = '';
+  lastResult = null; $('copy').disabled = true;
   $('status').textContent = 'Thinking… (a local model can take a few minutes)';
   $('go').disabled = true; $('stop').disabled = false;
   abort = new AbortController();
   const t0 = Date.now();
+  const handle = ev => {
+    if (ev.type === 'progress') $('status').textContent = `Writing review… ${ev.chars} characters`;
+    else if (ev.type === 'retry') $('status').textContent = 'Invalid answer from the model, retrying once…';
+    else if (ev.type === 'result') {
+      lastResult = ev.data; render(ev.data); $('copy').disabled = false;
+      $('status').textContent = `Done in ${Math.round((Date.now() - t0) / 1000)} s`;
+    } else if (ev.type === 'error') {
+      $('status').textContent = 'Error: ' + ev.message;
+    }
+  };
   try {
     const r = await fetch('/api/review', {
       method: 'POST', signal: abort.signal,
@@ -129,12 +196,15 @@ $('go').onclick = async () => {
     });
     if (!r.ok) throw new Error((await r.json()).error);
     const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = '';
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      $('out').textContent += dec.decode(value, { stream: true });
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      lines.filter(Boolean).forEach(l => handle(JSON.parse(l)));
     }
-    $('status').textContent = `Done in ${Math.round((Date.now() - t0) / 1000)} s`;
   } catch (e) {
     $('status').textContent = e.name === 'AbortError' ? 'Stopped.' : 'Error: ' + e.message;
   } finally {
@@ -142,7 +212,7 @@ $('go').onclick = async () => {
   }
 };
 $('stop').onclick = () => abort && abort.abort();
-$('copy').onclick = () => navigator.clipboard.writeText($('out').textContent);
+$('copy').onclick = () => lastResult && navigator.clipboard.writeText(JSON.stringify(lastResult, null, 2));
 loadModels();
 </script>
 </body>
